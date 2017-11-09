@@ -1,7 +1,7 @@
 from unittest import TestCase
 import numpy as np
 from contextlib import contextmanager
-from miniutils.caching import CachedProperty
+from miniutils.caching import CachedProperty, add_cached
 from io import StringIO
 import sys
 from collections import defaultdict
@@ -70,6 +70,14 @@ class Printer:
         return str(self.c ** 2)
 
 
+class MiniPrinter:
+    def __init__(self):
+        add_cached(self, 'a', 5, 'b', settable=True)
+        add_cached(self, 'b', [self.a] * 100, 'c', settable=True)
+        add_cached(self, 'c', lambda: sum(self.b), 'd', threadsafe=False)
+        add_cached(self, 'd', lambda: str(self.c ** 2))
+
+
 class CollectionProperties:
     @CachedProperty('target', is_collection=True)
     def basic_list(self):
@@ -121,18 +129,34 @@ class TestCachedProperty(TestCase):
         np.random.seed(0)
         m = Matrix(np.random.normal(size=(10, 10)))
         self.assertIsNotNone(m.pca_basis)
-        self.assertFalse(m._need_pca_basis)
+        self.assertFalse(getattr(m, '__need_pca_basis'))
         del m.pca_basis
-        self.assertTrue(m._need_pca_basis)
-        self.assertFalse(m.covariance._need_eigen)
+        self.assertTrue(getattr(m, '__need_pca_basis'))
+        self.assertFalse(getattr(m.covariance, '__need_eigen'))
         m.array = np.random.normal(size=(10, 10))
-        self.assertTrue(m.covariance._need_eigen)
+        self.assertTrue(getattr(m.covariance, '__need_eigen'))
         self.assertIsNotNone(m.pca_basis)
-        self.assertFalse(m.covariance._need_eigen)
+        self.assertFalse(getattr(m.covariance, '__need_eigen'))
 
     def test_printer_assign_iterable(self):
         with captured_output() as (out, err):
             p = Printer()
+            self.assertEqual(p.c, 500)
+            p.b[0] = 0
+            self.assertEqual(p.c, 495)
+            self.assertEqual(p.c, 495)
+            p.b = [1,2,3]
+            self.assertEqual(p.c, 6)
+            self.assertEqual(p.c, 6)
+            del p.a
+            self.assertEqual(p.d, '250000')
+        out = out.getvalue()
+        self.assertEqual(out.strip(),
+                         '\n'.join('Running {}'.format(s) for s in list('cbaccdcba')))
+
+    def test_miniprinter_assign_iterable(self):
+        with captured_output() as (out, err):
+            p = MiniPrinter()
             self.assertEqual(p.c, 500)
             p.b[0] = 0
             self.assertEqual(p.c, 495)
@@ -164,10 +188,10 @@ class TestCachedProperty(TestCase):
 
         def try_set(l, k, v):
             self.assertTrue(i.target)
-            self.assertFalse(i._need_target)
+            self.assertFalse(getattr(i, '__need_target'))
             l[k] = v
             self.assertEqual(l[k], v)
-            self.assertTrue(i._need_target)
+            self.assertTrue(getattr(i, '__need_target'))
 
         try_set(i.basic_list, 0, -1)
         try_set(i.basic_dict, 'a', -1)
@@ -192,9 +216,9 @@ class TestCachedProperty(TestCase):
 
         def try_del(l, k):
             self.assertTrue(i.target)
-            self.assertFalse(i._need_target)
+            self.assertFalse(getattr(i, '__need_target'))
             del l[k]
-            self.assertTrue(i._need_target)
+            self.assertTrue(getattr(i, '__need_target'))
 
         try_del(i.basic_list, 0)
         try_del(i.basic_dict, 'a')
@@ -213,40 +237,40 @@ class TestCachedProperty(TestCase):
     def test_dict_update(self):
         i = CollectionProperties()
         self.assertTrue(i.target)
-        self.assertFalse(i._need_target)
+        self.assertFalse(getattr(i, '__need_target'))
         i.basic_dict.update({'a': -1, 'new_key': -1})
         self.assertEqual(i.basic_dict['a'], -1)
         self.assertEqual(i.basic_dict['new_key'], -1)
-        self.assertTrue(i._need_target)
+        self.assertTrue(getattr(i, '__need_target'))
 
     def test_mutable_list_properties(self):
         i = CollectionProperties()
         self.assertTrue(i.target)
-        self.assertFalse(i._need_target)
+        self.assertFalse(getattr(i, '__need_target'))
 
         reversed(i.basic_list)
-        self.assertFalse(i._need_target)
+        self.assertFalse(getattr(i, '__need_target'))
 
         str(i.basic_list)
-        self.assertFalse(i._need_target)
+        self.assertFalse(getattr(i, '__need_target'))
 
         repr(i.basic_list)
-        self.assertFalse(i._need_target)
+        self.assertFalse(getattr(i, '__need_target'))
 
         self.assertTrue(1 in i.basic_list)
-        self.assertFalse(i._need_target)
+        self.assertFalse(getattr(i, '__need_target'))
 
         len(i.basic_list)
-        self.assertFalse(i._need_target)
+        self.assertFalse(getattr(i, '__need_target'))
 
         i.basic_dict.get('a', 0)
-        self.assertFalse(i._need_target)
+        self.assertFalse(getattr(i, '__need_target'))
 
         i.basic_set.union(i.basic_set)
-        self.assertFalse(i._need_target)
+        self.assertFalse(getattr(i, '__need_target'))
 
         i.basic_set.intersection(i.basic_set)
-        self.assertFalse(i._need_target)
+        self.assertFalse(getattr(i, '__need_target'))
 
         i.basic_set.difference(i.basic_set)
-        self.assertFalse(i._need_target)
+        self.assertFalse(getattr(i, '__need_target'))

@@ -7,11 +7,15 @@ try:
     from tqdm import tqdm as _tqdm
     try:  # pragma: nocover
         # Check if we're in a Jupyter notebook... if so, use the ipywidgets progress bar instead
-        # noinspection PyUnresolvedReferences
+        from IPython import get_ipython
         cfg = get_ipython().config
         if cfg['IPKernelApp']['parent_appname'] == 'ipython-notebook':
             from tqdm import tqdm_notebook as _tqdm
-    except NameError:
+    except ImportError:
+        # IPython isn't even installed
+        pass
+    except AttributeError:
+        # IPython is installed, but we're not in it
         pass
 except ImportError:  # pragma: nocover
     # noinspection PyUnusedLocal

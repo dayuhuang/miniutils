@@ -104,11 +104,11 @@ class CachedProperty:
         self.f = None
         CachedProperty.caches.append(self)
 
-    def __call__(self, f):
+    def __call__(self, f, name=None):
         self.f = f
-        self.name = name = f.__name__
-        flag_name = '_need_' + name
-        cache_name = '_' + name
+        self.name = name = name or f.__name__
+        flag_name = '__need_' + name
+        cache_name = '__' + name
 
         def reset_dependents(inner_self):
             for affected in self.affected_properties:
@@ -166,6 +166,50 @@ class CachedProperty:
                 reset_dependents(inner_self)
 
             return property(fget=inner_getter, fset=inner_setter, fdel=inner_deleter, doc=self.f.__doc__)
+
+
+def add_cached(self, name, value_or_computation, *affects, settable=False, threadsafe=True, is_collection=None,
+           allow_collection_mutation=True):
+    """
+
+    :param self:
+    :param name:
+    :param value_or_computation:
+    :param affects:
+    :param settable:
+    :param threadsafe:
+    :param is_collection:
+    :param allow_collection_mutation:
+    :return:
+    """
+    if not callable(value_or_computation):
+        if is_collection is None:
+            try:
+                iter(value_or_computation)
+                is_collection = True
+            except TypeError:
+                is_collection = False
+        computation = lambda inner_self: value_or_computation
+    else:
+        is_collection = bool(is_collection)
+
+        spec = inspect.getfullargspec(value_or_computation)
+        if spec.varargs or spec.varkw or len(spec.args) + len(spec.kwonlyargs) > 1:
+            raise AttributeError("A cached property can't take any arguments besides 'self'")
+
+        name = name or (value_or_computation.__name__ if value_or_computation.__name__ != '<lambda>'
+                        else str(len(CachedProperty.caches)))
+
+        if len(spec.args) + len(spec.kwonlyargs) == 0:
+            computation = lambda inner_self: value_or_computation()
+        else:
+            computation = value_or_computation
+
+    setattr(self, name, CachedProperty(*affects, settable=settable, threadsafe=threadsafe, is_collection=is_collection,
+                                       allow_collection_mutation=allow_collection_mutation)(computation, name=name))
+
+
+
 
 
 # def _get_class_that_defined_method(method):
